@@ -2161,13 +2161,9 @@ private:
 			double* gweight;
 			double* lweight = new double[weightSize];
 
-			double division_result = 0;
-			double global_weight = 0.0;
 			for (int i=0; i<weight->size(); i++){
 				lweight[i] = (*weight)[i];
-				global_weight += (*weight)[i];
 			}
-			division_result = global_weight/(double)nproc;
 
 			int *oldpartition = new int[nproc];
 			int *displays = new int[nproc];
@@ -2183,6 +2179,13 @@ private:
 			}
 			gweight = new double[globalNofOctant];
 			MPI_Allgatherv(lweight,weightSize,MPI_DOUBLE,gweight,oldpartition,displays,MPI_DOUBLE,comm);
+
+			double division_result = 0;
+			double global_weight = 0.0;
+			for (int i=0; i<globalNofOctant; i++){
+				global_weight += gweight[i];
+			}
+			division_result = global_weight/(double)nproc;
 
 			//Estimate resulting weight distribution starting from proc 0 (sending tail)
 			//Estimate sending weight by each proc in initial conf (sending tail)
