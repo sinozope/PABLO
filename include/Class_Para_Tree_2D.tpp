@@ -2194,7 +2194,7 @@ private:
 			while (iproc < nproc-1){
 				double partial_weight = 0.0;
 				partition[iproc] = 0;
-				while(partial_weight < division_result){
+				while(partial_weight < division_result && i < globalNofOctant){
 					partial_weight += gweight[i];
 					tot++;
 					partition[iproc]++;
