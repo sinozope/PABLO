@@ -2174,11 +2174,12 @@ private:
 			MPI_Allgather(&weightSize,1,MPI_INT,oldpartition,1,MPI_INT,comm);
 			int globalNofOctant = 0;
 			for(int i = 0; i < nproc; ++i){
+				displays[i] = globalNofOctant + 1;
 				globalNofOctant += oldpartition[i];
-				if(i==0)
-					displays[i] = 0;
-				else
-					displays[i] = oldpartition[i-1] + 1;
+//				if(i==0)
+//					displays[i] = 0;
+//				else
+//					displays[i] = oldpartition[i-1] + 1;
 			}
 			gweight = new double[globalNofOctant];
 			MPI_Allgatherv(lweight,weightSize,MPI_DOUBLE,gweight,oldpartition,displays,MPI_DOUBLE,comm);
