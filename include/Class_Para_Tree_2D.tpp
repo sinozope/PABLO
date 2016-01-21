@@ -2157,146 +2157,190 @@ private:
 		}
 		else{
 
+			int weightSize = weight->size();
+			double* gweight;
+			double* lweight = new double[weightSize];
+
 			double division_result = 0;
-			double remind = 0;
-			dvector local_weight(nproc,0.0);
-			dvector temp_local_weight(nproc,0.0);
-			dvector2D sending_weight(nproc, dvector(nproc,0.0));
-			double* rbuff = new double[nproc];
 			double global_weight = 0.0;
 			for (int i=0; i<weight->size(); i++){
-				local_weight[rank] += (*weight)[i];
+				lweight[i] = (*weight)[i];
+				global_weight += (*weight)[i];
 			}
-			error_flag = MPI_Allgather(&local_weight[rank],1,MPI_DOUBLE,rbuff,1,MPI_DOUBLE,comm);
-			for (int i=0; i<nproc; i++){
-				local_weight[i] = rbuff[i];
-				global_weight += rbuff[i];
-			}
-			delete [] rbuff; rbuff = NULL;
 			division_result = global_weight/(double)nproc;
 
+			int *oldpartition = new int[nproc];
+			int *displays = new int[nproc];
+			MPI_Allgather(&weightSize,1,MPI_INT,oldpartition,1,MPI_INT,comm);
+			int globalNofOctant = 0;
+			for(int i = 0; i < nproc; ++i){
+				globalNofOctant += oldpartition[i];
+				if(i==0)
+					displays[i] = 0;
+				else
+					displays[i] = oldpartition[i-1] + 1;
+			}
+			gweight = new double[globalNofOctant];
+			MPI_Allgatherv(lweight,weightSize,MPI_DOUBLE,gweight,oldpartition,displays,MPI_DOUBLE,comm);
+
 			//Estimate resulting weight distribution starting from proc 0 (sending tail)
-
-			temp_local_weight = local_weight;
 			//Estimate sending weight by each proc in initial conf (sending tail)
-
-			for (int iter = 0; iter < 1; iter++){
-
-				vector<double> delta(nproc);
-				for (int i=0; i<nproc; i++){
-					delta[i] = temp_local_weight[i] - division_result;
-				}
-
-				for (int i=0; i<nproc-1; i++){
-
-					double post_weight = 0.0;
-					for (int j=i+1; j<nproc; j++){
-						post_weight += temp_local_weight[j];
-					}
-					if (temp_local_weight[i] > division_result){
-
-						delta[i] = temp_local_weight[i] - division_result;
-						if (post_weight < division_result*(nproc-i-1)){
-
-							double post_delta =  division_result*(nproc-i-1) - post_weight;
-							double delta_sending = min(local_weight[i], min(delta[i], post_delta));
-							int jproc = i+1;
-							double sending = 0;
-							while (delta_sending > 0 && jproc<nproc){
-								sending = min(division_result, delta_sending);
-								sending = min(sending, (division_result-temp_local_weight[jproc]));
-								sending = max(sending, 0.0);
-								sending_weight[i][jproc] += sending;
-								temp_local_weight[jproc] += sending;
-								temp_local_weight[i] -= sending;
-								delta_sending -= sending;
-								delta[i] -= delta_sending;
-								jproc++;
-							}
-						} //post
-					}//weight>
-				}//iproc
-
-				for (int i = nproc-1; i>0; i--){
-
-					double pre_weight = 0.0;
-					for (int j=i-1; j>=0; j--){
-						pre_weight += temp_local_weight[j];
-					}
-					if (temp_local_weight[i] > division_result){
-
-						delta[i] = temp_local_weight[i] - division_result;
-						if (pre_weight < division_result*(i)){
-
-							double pre_delta =  division_result*(i) - pre_weight;
-							double delta_sending = min(local_weight[i], min(temp_local_weight[i], min(delta[i], pre_delta)));
-							int jproc = i-1;
-							double sending = 0;
-							while (delta_sending > 0 && jproc >=0){
-								sending = min(division_result, delta_sending);
-								sending = min(sending, (division_result-temp_local_weight[jproc]));
-								sending = max(sending, 0.0);
-								sending_weight[i][jproc] += sending;
-								temp_local_weight[jproc] += sending;
-								temp_local_weight[i] -= sending;
-								delta_sending -= sending;
-								delta[i] -= delta_sending;
-								jproc--;
-							}
-						}//pre
-					}//weight>
-				}//iproc
-			}//iter
-
-			//Update partition locally
-			//to send
-			u32vector sending_cell(nproc,0);
-			int i = getNumOctants();;
-			for (int jproc=nproc-1; jproc>rank; jproc--){
-				double pack_weight = 0.0;
-				while(pack_weight < sending_weight[rank][jproc] && i > 0){
-					i--;
-					pack_weight += (*weight)[i];
-					sending_cell[jproc]++;
-				}
-			}
-			partition[rank] = i;
-			i = 0;
-			for (int jproc=0; jproc<rank; jproc++){
-				double pack_weight = 0.0;
-				while(pack_weight < sending_weight[rank][jproc] && i <  getNumOctants()-1){
+			uint32_t i = 0, tot = 0;
+			int iproc = 0;
+			while (iproc < nproc-1){
+				double partial_weight = 0.0;
+				partition[iproc] = 0;
+				while(partial_weight < division_result){
+					partial_weight += gweight[i];
+					tot++;
+					partition[iproc]++;
 					i++;
-					pack_weight += (*weight)[i];
-					sending_cell[jproc]++;
 				}
+				iproc++;
 			}
-			partition[rank] -= i;
+			partition[nproc-1] = globalNofOctant - tot;
 
-			//to receive
-			u32vector rec_cell(nproc,0);
-			MPI_Request* req = new MPI_Request[nproc*10];
-			MPI_Status* stats = new MPI_Status[nproc*10];
-			int nReq = 0;
-			for (int iproc=0; iproc<nproc; iproc++){
-				error_flag = MPI_Irecv(&rec_cell[iproc],1,MPI_UINT32_T,iproc,rank,comm,&req[nReq]);
-				++nReq;
-			}
-			for (int iproc=0; iproc<nproc; iproc++){
-				error_flag =  MPI_Isend(&sending_cell[iproc],1,MPI_UINT32_T,iproc,iproc,comm,&req[nReq]);
-				++nReq;
-			}
-			MPI_Waitall(nReq,req,stats);
-
-			delete [] req; req = NULL;
-			delete [] stats; stats = NULL;
-
-			i = 0;
-			for (int jproc=0; jproc<nproc; jproc++){
-				i+= rec_cell[jproc];
-			}
-			partition[rank] += i;
-			uint32_t part = partition[rank];
-			error_flag = MPI_Allgather(&part,1,MPI_UINT32_T,partition,1,MPI_UINT32_T,comm);
+//
+//			double division_result = 0;
+//			double remind = 0;
+//			dvector local_weight(nproc,0.0);
+//			dvector temp_local_weight(nproc,0.0);
+//			dvector2D sending_weight(nproc, dvector(nproc,0.0));
+//			double* rbuff = new double[nproc];
+//			double global_weight = 0.0;
+//			for (int i=0; i<weight->size(); i++){
+//				local_weight[rank] += (*weight)[i];
+//			}
+//			error_flag = MPI_Allgather(&local_weight[rank],1,MPI_DOUBLE,rbuff,1,MPI_DOUBLE,comm);
+//			for (int i=0; i<nproc; i++){
+//				local_weight[i] = rbuff[i];
+//				global_weight += rbuff[i];
+//			}
+//			delete [] rbuff; rbuff = NULL;
+//			division_result = global_weight/(double)nproc;
+//
+//			//Estimate resulting weight distribution starting from proc 0 (sending tail)
+//
+//			temp_local_weight = local_weight;
+//			//Estimate sending weight by each proc in initial conf (sending tail)
+//
+//			for (int iter = 0; iter < 1; iter++){
+//
+//				vector<double> delta(nproc);
+//				for (int i=0; i<nproc; i++){
+//					delta[i] = temp_local_weight[i] - division_result;
+//				}
+//
+//				for (int i=0; i<nproc-1; i++){
+//
+//					double post_weight = 0.0;
+//					for (int j=i+1; j<nproc; j++){
+//						post_weight += temp_local_weight[j];
+//					}
+//					if (temp_local_weight[i] > division_result){
+//
+//						delta[i] = temp_local_weight[i] - division_result;
+//						if (post_weight < division_result*(nproc-i-1)){
+//
+//							double post_delta =  division_result*(nproc-i-1) - post_weight;
+//							double delta_sending = min(local_weight[i], min(delta[i], post_delta));
+//							int jproc = i+1;
+//							double sending = 0;
+//							while (delta_sending > 0 && jproc<nproc){
+//								sending = min(division_result, delta_sending);
+//								sending = min(sending, (division_result-temp_local_weight[jproc]));
+//								sending = max(sending, 0.0);
+//								sending_weight[i][jproc] += sending;
+//								temp_local_weight[jproc] += sending;
+//								temp_local_weight[i] -= sending;
+//								delta_sending -= sending;
+//								delta[i] -= delta_sending;
+//								jproc++;
+//							}
+//						} //post
+//					}//weight>
+//				}//iproc
+//
+//				for (int i = nproc-1; i>0; i--){
+//
+//					double pre_weight = 0.0;
+//					for (int j=i-1; j>=0; j--){
+//						pre_weight += temp_local_weight[j];
+//					}
+//					if (temp_local_weight[i] > division_result){
+//
+//						delta[i] = temp_local_weight[i] - division_result;
+//						if (pre_weight < division_result*(i)){
+//
+//							double pre_delta =  division_result*(i) - pre_weight;
+//							double delta_sending = min(local_weight[i], min(temp_local_weight[i], min(delta[i], pre_delta)));
+//							int jproc = i-1;
+//							double sending = 0;
+//							while (delta_sending > 0 && jproc >=0){
+//								sending = min(division_result, delta_sending);
+//								sending = min(sending, (division_result-temp_local_weight[jproc]));
+//								sending = max(sending, 0.0);
+//								sending_weight[i][jproc] += sending;
+//								temp_local_weight[jproc] += sending;
+//								temp_local_weight[i] -= sending;
+//								delta_sending -= sending;
+//								delta[i] -= delta_sending;
+//								jproc--;
+//							}
+//						}//pre
+//					}//weight>
+//				}//iproc
+//			}//iter
+//
+//			//Update partition locally
+//			//to send
+//			u32vector sending_cell(nproc,0);
+//			int i = getNumOctants();;
+//			for (int jproc=nproc-1; jproc>rank; jproc--){
+//				double pack_weight = 0.0;
+//				while(pack_weight < sending_weight[rank][jproc] && i > 0){
+//					i--;
+//					pack_weight += (*weight)[i];
+//					sending_cell[jproc]++;
+//				}
+//			}
+//			partition[rank] = i;
+//			i = 0;
+//			for (int jproc=0; jproc<rank; jproc++){
+//				double pack_weight = 0.0;
+//				while(pack_weight < sending_weight[rank][jproc] && i <  getNumOctants()-1){
+//					i++;
+//					pack_weight += (*weight)[i];
+//					sending_cell[jproc]++;
+//				}
+//			}
+//			partition[rank] -= i;
+//
+//			//to receive
+//			u32vector rec_cell(nproc,0);
+//			MPI_Request* req = new MPI_Request[nproc*10];
+//			MPI_Status* stats = new MPI_Status[nproc*10];
+//			int nReq = 0;
+//			for (int iproc=0; iproc<nproc; iproc++){
+//				error_flag = MPI_Irecv(&rec_cell[iproc],1,MPI_UINT32_T,iproc,rank,comm,&req[nReq]);
+//				++nReq;
+//			}
+//			for (int iproc=0; iproc<nproc; iproc++){
+//				error_flag =  MPI_Isend(&sending_cell[iproc],1,MPI_UINT32_T,iproc,iproc,comm,&req[nReq]);
+//				++nReq;
+//			}
+//			MPI_Waitall(nReq,req,stats);
+//
+//			delete [] req; req = NULL;
+//			delete [] stats; stats = NULL;
+//
+//			i = 0;
+//			for (int jproc=0; jproc<nproc; jproc++){
+//				i+= rec_cell[jproc];
+//			}
+//			partition[rank] += i;
+//			uint32_t part = partition[rank];
+//			error_flag = MPI_Allgather(&part,1,MPI_UINT32_T,partition,1,MPI_UINT32_T,comm);
 		}
 	};
 
