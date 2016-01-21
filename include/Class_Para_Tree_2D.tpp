@@ -2200,7 +2200,7 @@ private:
 					partition[iproc]++;
 					i++;
 				}
-				global_weight = 0
+				global_weight = 0;
 				for(int j = i; j < globalNofOctant; ++j)
 					global_weight += gweight[j];
 				division_result = global_weight/double(nproc-(iproc+1));
