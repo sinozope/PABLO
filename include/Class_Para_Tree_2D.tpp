@@ -2208,6 +2208,11 @@ private:
 			}
 			partition[nproc-1] = globalNofOctant - tot;
 
+			delete [] oldpartition;
+			delete [] displays;
+			delete [] lweight;
+			delete [] gweight;
+
 //
 //			double division_result = 0;
 //			double remind = 0;
