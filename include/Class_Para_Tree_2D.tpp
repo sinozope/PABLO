@@ -2174,7 +2174,7 @@ private:
 			MPI_Allgather(&weightSize,1,MPI_INT,oldpartition,1,MPI_INT,comm);
 			int globalNofOctant = 0;
 			for(int i = 0; i < nproc; ++i){
-				displays[i] = globalNofOctant + 1;
+				displays[i] = globalNofOctant + (i>0)*1;
 				globalNofOctant += oldpartition[i];
 //				if(i==0)
 //					displays[i] = 0;
