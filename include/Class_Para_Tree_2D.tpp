@@ -5459,6 +5459,7 @@ public:
 	 */
 	template<class Impl>
 	void communicate(Class_Data_Comm_Interface<Impl> & userData){
+		InitialBarrier(comm);
 		//BUILD SEND BUFFERS
 		map<int,Class_Comm_Buffer> sendBuffers;
 		size_t fixedDataSize = userData.fixedSize();
@@ -5506,8 +5507,9 @@ public:
 			error_flag =  MPI_Isend(&rsit->second.commBufferSize,1,MPI_UINT32_T,rsit->first,rsit->first,comm,&req[nReq]);
 			++nReq;
 		}
-		MPI_Waitall(nReq,req,stats);
-
+		//MPI_Waitall(nReq,req,stats);
+		WaitAllBeforePointToPoints(req,stats,nReq);
+		AfterFirstWaitAllBarrier(comm);
 		//Communicate Buffers
 		map<int,Class_Comm_Buffer> recvBuffers;
 		map<int,int>::iterator ritend = recvBufferSizePerProc.end();
@@ -5523,8 +5525,9 @@ public:
 			error_flag =  MPI_Isend(rsit->second.commBuffer,rsit->second.commBufferSize,MPI_PACKED,rsit->first,rsit->first,comm,&req[nReq]);
 			++nReq;
 		}
-		MPI_Waitall(nReq,req,stats);
-
+		//MPI_Waitall(nReq,req,stats);
+		WaitAllAfterPointToPoints(req,stats,nReq);
+		AfterSecondWaitAllBarrier(comm);
 		//READ RECEIVE BUFFERS
 		int ghostOffset = 0;
 		map<int,Class_Comm_Buffer>::iterator rbitend = recvBuffers.end();
@@ -5540,7 +5543,21 @@ public:
 		delete [] req; req = NULL;
 		delete [] stats; stats = NULL;
 
+		FinalBarrier(comm);
+
 	};
+
+	void WaitAllBeforePointToPoints(MPI_Request* req, MPI_Status* stats,int & nReq){
+		MPI_Waitall(nReq,req,stats);
+	};
+        void WaitAllAfterPointToPoints(MPI_Request* req, MPI_Status* stats,int & nReq){
+                MPI_Waitall(nReq,req,stats);
+        };
+	void InitialBarrier(MPI_Comm & comm){MPI_Barrier(comm);};
+	void FinalBarrier(MPI_Comm & comm){MPI_Barrier(comm);};
+        void AfterFirstWaitAllBarrier(MPI_Comm & comm){MPI_Barrier(comm);};
+        void AfterSecondWaitAllBarrier(MPI_Comm & comm){MPI_Barrier(comm);};
+
 #endif /* NOMPI */
 	// =============================================================================== //
 
